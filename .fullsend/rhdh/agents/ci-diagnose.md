@@ -476,13 +476,17 @@ post-script appends it when posting:
 |-------|--------|
 | `ci/prow/e2e-ocp-helm` | ⏳ not yet triggered on `<short-sha>`; last failed on `<prior-short-sha>` |
 
+**Next step:** Wait for the check to report, or trigger it now.
+
+**Re-run:** comment `/test e2e-ocp-helm`.
+
 ---
 <!-- ci-diagnose-state: {"sha":"<HEAD_SHA>","red":[],"pending":["ci/prow/e2e-ocp-helm"]} -->
 ```
 
 **When red checks exist** (normal diagnostic flow):
 
-```markdown
+````markdown
 <!-- ci-diagnose -->
 ### 🔍 CI Diagnosis — <N> of <M> curated checks failing · `<short-sha>`
 
@@ -499,6 +503,20 @@ post-script appends it when posting:
 **Root cause:** <mechanism, not symptom>
 **Evidence:** <2–10 decisive log/trace lines, in a fenced block if multi-line>
 **Suggested fix:** <specific file:line or action>
+
+**Next step:** Apply the suggested fix, verify locally, push, then re-run the check.
+
+<details>
+<summary>Local reproduction</summary>
+
+```bash
+export GIT_PR_NUMBER=<PR_NUMBER>
+CI=false ./run-e2e.sh --secrets -w <workspace>
+```
+</details>
+
+**Re-run:** comment `/test e2e-ocp-helm` (or `/retest` to rerun all failed Prow jobs).
+
 [logs](<url>)
 </details>
 
@@ -510,12 +528,43 @@ post-script appends it when posting:
 **Suggested fix:** <file:line, or "already being fixed">
 **Open PR:** <#3480 — title> (omit this line when `related_prs` is absent; append `(targets <branch>)` when the related PR's base branch differs from this PR's base branch)
 **Tracked in:** <#4100 — [fullsend] E2E: login-nav-hidden> (omit this line when `related_issues` is absent)
+
+**Next step:** Not this PR's fault — do not change code here. Re-run after the linked fix lands.
+
+**Re-run:** re-run the failed job in the [Actions run](<run-url>) (or `gh run rerun <run-id> --repo <REPO> --failed`).
+
 [logs](<url>)
 </details>
 
 ---
 <!-- ci-diagnose-state: {"sha":"<HEAD_SHA>","red":["appConfigExamples coverage","ci/prow/e2e-ocp-helm"]} -->
-```
+````
+
+### Reproduction and re-run commands
+
+Choose the row for the failing check. Substitute the real workspace, PR
+number, run id, and base branch — never emit `<...>` placeholders. Put the
+local-reproduction block in a nested `<details>` so it stays collapsed by
+default. Omit that block when it does not apply (see the rule below).
+
+| Check (`type`) | Local reproduction | CI re-run |
+|----------------|--------------------|-----------|
+| `ci/prow/*` (`prow`) | `export GIT_PR_NUMBER=<PR>; CI=false ./run-e2e.sh --secrets -w <workspace>` — add `INSTALLATION_METHOD=operator` for operator lanes; for a nightly job add `E2E_NIGHTLY_MODE=true RELEASE_BRANCH_NAME=main RHDH_VERSION=next` (on `main`) or `RELEASE_BRANCH_NAME=<base> RHDH_VERSION=<x.y>` (on `release-*`); append `--grep "<test title>"` to focus one spec. Requires this PR's OCI images — run `/publish` first if they do not exist. | `/test <job>` — the context after `ci/prow/` (e.g. `/test e2e-ocp-helm`); `/retest` reruns all failed Prow jobs. |
+| `E2E Code Quality` (`gha_check`) | `bash scripts/e2e-code-quality.sh <workspace>` (add `--fix` to autofix lint/prettier). From the workspace: `cd workspaces/<workspace>/e2e-tests && yarn install --immutable --mode=skip-build && yarn lint:check && yarn prettier:check && yarn tsc:check`. | `gh run rerun <run-id> --repo <REPO> --failed`, or "Re-run failed jobs" in the Actions run; pushing the fix re-triggers it. |
+| `appConfigExamples coverage` (`gha_check`) | `cd scripts && vp exec validate-app-config-examples --workspace <workspace> --check-plugin-paths --allow-unpublished` (use `--since "$(git merge-base HEAD origin/<base>)" --check-schemas` for the PR-scoped check). | `gh run rerun <run-id> --repo <REPO> --failed`, or "Re-run failed jobs" in the Actions run. |
+| `Python unit tests` (`gha_check`) | `pip install -r scripts/requirements-dev.txt && cd scripts && python -m pytest tests/ -v` (append `-k <test>` to focus). | `gh run rerun <run-id> --repo <REPO> --failed`, or "Re-run failed jobs" in the Actions run. |
+| `smoke` — Native Smoke Harness (`gha_check`) | Match the failing step: `cd smoke-tests-native && yarn install --immutable && yarn test` for the unit-test step; `yarn smoke --workspace <workspace>` for the harness step (needs `skopeo`). | `gh run rerun <run-id> --repo <REPO> --failed`, or "Re-run failed jobs" in the Actions run. |
+| `publish` (`status`) | — no local equivalent (it builds and pushes this PR's OCI images). | `/publish` |
+| `smoketest` (`status`) | — no local equivalent (it runs against published PR images). | `/publish` first when the images were never published, then `/smoketest` (or `/smoketest <tag>`). Never `/smoketest` alone without published images. |
+
+**When to include local reproduction:** for `pr_regression`, whenever the
+table above lists a local reproduction command for the failing check; when
+the row says there is no local equivalent (e.g. `publish` builds and pushes
+this PR's OCI images), say so in one line instead of inventing a command. For
+`pre_existing` only when running the failing workspace on the base branch
+would confirm the failure; for `product_bug` only when the upstream repo has
+a real local repro. Omit it for `flake`, `config_env`, and `needs_human`
+unless the diagnosis names a command that actually reproduces the failure.
 
 **Remediation guidelines (`pr_regression`, `pre_existing`, and `flake`).** These
 three classifications point at something actionable, so `suggestion` is
